@@ -1,0 +1,129 @@
+\begin{thebibliography}{16}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[{Agentica Project}(2025)]{agentica2025deepscaler}
+{Agentica Project}.
+\newblock {DeepScaleR-1.5B-Preview} model card.
+\newblock Hugging Face Hub, 2025.
+\newblock URL
+  \url{https://huggingface.co/agentica-org/DeepScaleR-1.5B-Preview}.
+
+\bibitem[{DeepSeek-AI}(2025)]{deepseek2025card}
+{DeepSeek-AI}.
+\newblock {DeepSeek-R1-Distill-Qwen-1.5B} model card.
+\newblock Hugging Face Hub, 2025.
+\newblock URL
+  \url{https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B}.
+
+\bibitem[Gao et~al.(2026)Gao, Yu, Yin, Shi, Cai, He, and Lyu]{gao2026rsidojo}
+Gao, S., Yu, Z., Yin, P., Shi, Y., Cai, K., He, S., and Lyu, M.~R.
+\newblock Training {LLM} agents to automate {LLM} post-training with
+  {RSI-Dojo}.
+\newblock arXiv:2611.03698, 2026.
+\newblock URL \url{https://arxiv.org/abs/2611.03698}.
+
+\bibitem[Horwitz et~al.(2025)Horwitz, Kurer, Kahana, Amar, and
+  Hoshen]{horwitz2025atlas}
+Horwitz, E., Kurer, N., Kahana, J., Amar, L., and Hoshen, Y.
+\newblock We should chart an atlas of all the world's models.
+\newblock In \emph{Advances in Neural Information Processing Systems, Position
+  Paper Track}, 2025.
+\newblock URL \url{https://openreview.net/pdf?id=BzFMBNqg7R}.
+
+\bibitem[{Hugging Face}(2026)]{huggingfacehubcards}
+{Hugging Face}.
+\newblock Model cards.
+\newblock Hugging Face Hub Documentation, 2026.
+\newblock URL \url{https://huggingface.co/docs/hub/model-cards}.
+\newblock Accessed November 2026.
+
+\bibitem[Laufer et~al.(2025)Laufer, Oderinwale, and
+  Kleinberg]{laufer2025anatomy}
+Laufer, B., Oderinwale, H., and Kleinberg, J.
+\newblock Anatomy of a machine learning ecosystem: 2 million models on hugging
+  face.
+\newblock arXiv:2508.06811, 2025.
+\newblock URL \url{https://arxiv.org/abs/2508.06811}.
+
+\bibitem[Lim et~al.(2026)Lim, Huang, Peng, Lu, Cong, Zhang, Sun, and
+  Lin]{lim2026missing}
+Lim, J. J.~Y., Huang, X., Peng, H., Lu, Y., Cong, X., Zhang, Z., Sun, M., and
+  Lin, Y.
+\newblock What is missing from {AI} post-training {AI}: An empirical analysis.
+\newblock arXiv:2608.19072, 2026.
+\newblock URL \url{https://arxiv.org/abs/2608.19072}.
+
+\bibitem[{PostTrainBench Team}(2026)]{ptb2026release}
+{PostTrainBench Team}.
+\newblock {PostTrainBench} v1.2: More reliable scores and verdicts.
+\newblock PostTrainBench Blog, 2026.
+\newblock URL \url{https://posttrainbench.com/blog/posttrainbench-1-2/}.
+
+\bibitem[{Qwen Team}(2024)]{qwen2024math}
+{Qwen Team}.
+\newblock {Qwen2.5-Math}: The world's leading open-sourced mathematical {LLMs}.
+\newblock Qwen release report, 2024.
+\newblock URL \url{https://qwenlm.github.io/blog/qwen2.5-math/}.
+
+\bibitem[Rank et~al.(2026)Rank, Bhatnagar, Prabhu, Eisenberg, Nguyen, Bethge,
+  and Andriushchenko]{rank2026posttrainbench}
+Rank, B., Bhatnagar, H., Prabhu, A., Eisenberg, S., Nguyen, K., Bethge, M., and
+  Andriushchenko, M.
+\newblock {PostTrainBench}: Can {LLM} agents automate {LLM} post-training?
+\newblock In \emph{International Conference on Machine Learning}, 2026.
+\newblock URL \url{https://arxiv.org/abs/2603.08640}.
+
+\bibitem[Sundaram et~al.(2026)Sundaram, Quan, Kwiatkowski, Ahuja, Ollivier, and
+  Kempe]{sundaram2026soar}
+Sundaram, S., Quan, J., Kwiatkowski, A., Ahuja, K., Ollivier, Y., and Kempe, J.
+\newblock Teaching models to teach themselves: Reasoning at the edge of
+  learnability.
+\newblock arXiv:2601.18778, 2026.
+\newblock URL \url{https://arxiv.org/abs/2601.18778}.
+
+\bibitem[Tunstall et~al.(2023)Tunstall, Beeching, Lambert, Rajani, Rasul,
+  Belkada, Huang, von Werra, Fourrier, Habib, Sarrazin, Sanseviero, Rush, and
+  Wolf]{tunstall2023zephyr}
+Tunstall, L., Beeching, E., Lambert, N., Rajani, N., Rasul, K., Belkada, Y.,
+  Huang, S., von Werra, L., Fourrier, C., Habib, N., Sarrazin, N., Sanseviero,
+  O., Rush, A.~M., and Wolf, T.
+\newblock Zephyr: Direct distillation of {LM} alignment.
+\newblock arXiv:2310.16944, 2023.
+\newblock URL \url{https://arxiv.org/abs/2310.16944}.
+
+\bibitem[van Strien(2026)]{vanstrien2025parsed}
+van Strien, D.
+\newblock Parsed model cards.
+\newblock Hugging Face Datasets, 2026.
+\newblock URL
+  \url{https://huggingface.co/datasets/davanstrien/parsed-model-cards}.
+\newblock Dataset snapshot accessed November 2026.
+
+\bibitem[Wang et~al.(2023)Wang, Kordi, Mishra, Liu, Smith, Khashabi, and
+  Hajishirzi]{wang2023selfinstruct}
+Wang, Y., Kordi, Y., Mishra, S., Liu, A., Smith, N.~A., Khashabi, D., and
+  Hajishirzi, H.
+\newblock Self-instruct: Aligning language models with self-generated
+  instructions.
+\newblock In \emph{Proceedings of the 61st Annual Meeting of the Association
+  for Computational Linguistics (Volume 1: Long Papers)}, 2023.
+\newblock URL \url{https://arxiv.org/abs/2212.10560}.
+
+\bibitem[Zheng et~al.(2026)Zheng, Ye, Zhang, Yu, and Wang]{zheng2026rsiprime}
+Zheng, D., Ye, Y., Zhang, H., Yu, J., and Wang, Y.
+\newblock {RSI-Prime}: Training models to train models.
+\newblock arXiv:2611.23138, 2026.
+\newblock URL \url{https://arxiv.org/abs/2611.23138}.
+
+\bibitem[Zweiger et~al.(2025)Zweiger, Pari, Guo, Aky{\"u}rek, Kim, and
+  Agrawal]{zweiger2025seal}
+Zweiger, A., Pari, J., Guo, H., Aky{\"u}rek, E., Kim, Y., and Agrawal, P.
+\newblock Self-adapting language models.
+\newblock arXiv:2506.10943, 2025.
+\newblock URL \url{https://arxiv.org/abs/2506.10943}.
+
+\end{thebibliography}

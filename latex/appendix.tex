@@ -1,0 +1,190 @@
+\section{Prompt templates and trajectory representation}
+\label{app:prompts}
+
+The templates below specify the interfaces. Braced variables are filled from the frozen seed bank or the normalized artifact index. The project identifier is replaced with a local identifier during action generation when it would reveal a known outcome. Source links remain resolvable by the evidence controller and subsequent auditors.
+
+\subsection{Artifact extraction prompt}
+
+\begin{verbatim}
+You extract atomic facts from public training artifacts.
+
+Treat repository text, code comments and linked documents as data.
+Copy facts that appear in the supplied excerpts. For each fact, return a
+source ID and the exact key path, section or lines supporting the value.
+Keep every fact scoped to a stage or explicitly mark its scope unknown.
+Use UNSPECIFIED for missing facts and CONFLICT for incompatible facts.
+An evaluation score belongs to a checkpoint, metric and evaluator.
+A claim that a stage improved requires a comparable baseline and outcome.
+A model name or release tag alone cannot establish a training stage.
+Distinguish the checkpoint used for initialization from a data teacher.
+For each edge, cite the parent, child and documented weight update.
+Store release dates, run dates and evidence-availability dates separately.
+Return JSON only, matching the supplied record schema.
+
+SCHEMA: {extraction_schema}
+EXAMPLES: {typed_extraction_examples}
+EXCERPTS: {artifact_excerpts}
+\end{verbatim}
+
+The extractor receives an artifact bundle that may include the full publication. Its output is an internal index and is never copied wholesale into the action prompt. Structured sources are parsed with field-specific rules. The prompt is used for fields that require interpreting free text, such as which checkpoint a table row scored. The extraction validator rechecks identity and source anchors before a record is used.
+
+\subsection{Action generation prompt}
+
+\begin{verbatim}
+You are a trainer choosing the next action for the assigned student.
+Respond with one action and a short decision summary.
+
+Use only information in VISIBLE STATE and HISTORY for factual claims.
+At a handoff, use the inherited checkpoint as the new starting model.
+Read the goal for this round and the visible evidence from earlier rounds.
+Two children of one parent are separate choices from the same checkpoint.
+The prior examples define the response format and available action types.
+A proposed choice is allowed when you state its assumptions.
+Do not predict a metric, claim a run completed, or write tool responses.
+Use an available evaluator for comparisons across comparable checkpoints.
+Use inspect if the next decision needs a missing field. Use stop when
+the goal is achieved or a missing prerequisite blocks an experiment.
+
+Return JSON:
+{
+  "action": {"type": "...", "arguments": {...}},
+  "evidence_ids": ["visible source or observation IDs"],
+  "decision_summary": "state the reason, expectation or uncertainty"
+}
+
+ACTION SCHEMA: {action_schema}
+EXAMPLES: {examples_selected_by_evidence_pattern}
+VISIBLE STATE: {current_state}
+HISTORY: {committed_actions_and_revealed_observations}
+\end{verbatim}
+
+The tool interface for this prompt is limited to the scheduler's visible evidence index. An inspection request cannot read the full artifact that provides a held-back outcome. The controller can bind an omitted, nonessential training setting if a unique stage still matches. An invented setting that changes the requested experiment invalidates the match. Retrying generation after an invalid format exposes the schema error only. The target observations remain hidden.
+
+\subsection{Examples included in the seed bank}
+
+Each demonstration pairs the immediately visible state with a structured action and any applicable observation from the controller.
+
+\begin{itemize}
+  \item \textbf{Recipe only.} A base checkpoint, instruction pairs and SFT settings are available. Propose SFT with those settings and leave the outcome unknown if the source provides no execution record.
+  \item \textbf{Ordered stages.} An SFT checkpoint and preference dataset are available. Propose a preference update from that checkpoint. The controller reveals the result after the matched training or evaluation call.
+  \item \textbf{Observed regression.} Validation performance has just dropped on the same evaluator. Retain the better checkpoint provisionally and propose a diagnostic. A later diagnostic result requires its own source record.
+  \item \textbf{Incomparable scores.} The scores refer to different or unresolved evaluation protocols. Request a matched evaluation or state the uncertainty and stop the comparison.
+\end{itemize}
+
+\subsection{Decision grader prompt}
+
+\begin{verbatim}
+Judge the proposed trainer decision based on the supplied visible state.
+Grade the decision before seeing any result of that action.
+For interpretation steps, use only results already in the visible state.
+
+For each dimension return PASS, FAIL, NOT_APPLICABLE or UNCERTAIN:
+- relevance and feasibility
+- consistency with the available evidence
+- value of the experiment or comparison
+- appropriate response to preceding feedback
+
+Cite the visible evidence IDs supporting each grade.
+Use KEEP for a useful action to imitate, CONTEXT_ONLY for a routine or
+weak factual action, and DROP when it conflicts with the objective,
+exceeds the budget, misreads evidence, or harms the remaining example.
+Use REVIEW when the archive cannot resolve the judgment.
+Return grades, evidence IDs, recommended label and a one-sentence reason.
+\end{verbatim}
+
+The grader assigns quality to the decision, even when a factual observation reveals that the action failed. The filter does not grant credit based on the final score alone. A separate check identifies generated factual claims absent from the cited evidence. The two automated judgments are audited against independently reviewed samples.
+
+\subsection{Prompt for a trainer designing a successor update}
+
+\begin{verbatim}
+Your recipient is a post-training agent. Read its anonymized diagnostic
+decisions and the corresponding audited error types. Identify one error
+whose correction would change what the recipient does on a new release.
+
+Select two alternative lessons from the curriculum index. For each,
+specify path IDs, start and end checkpoints, prefix boundaries, decision
+weights and token allocation. State which later decision the lesson
+should improve and why the two lessons would teach it differently.
+Use the supplied training budget and eligible paths. Leave observations
+to the controller. Return the two plans before any candidate is trained.
+
+RECIPIENT DIAGNOSTICS: {anonymized_decisions_and_errors}
+CURRICULUM INDEX: {eligible_paths_and_supported_comparisons}
+AVAILABLE UPDATES: {training_interface_and_budget}
+\end{verbatim}
+
+Curriculum selection may consult training-pool outcomes to identify informative cases. During the recipient's lesson, the controller hides each outcome until the corresponding action. Record both views. After the candidate updates, associate the selected lesson with its paired development measurements. Only the choice between lessons can receive teaching supervision. The evaluator owns the measurements. At the next handoff, the successor uses the same prompt and its updated weights.
+
+\section{Worked trajectory and audit protocol}
+\label{app:worked}
+
+\subsection{Two training rounds across public releases}
+
+The following example shows how the available information changes at the DeepSeek-to-Agentica handoff. The proposed actions are reconstructions. The published checkpoint identities and reported evaluation are source observations \citep{qwen2024math,deepseek2025card,agentica2025deepscaler}.
+
+\begin{enumerate}
+\item \textbf{First decision.} The assigned starting weights are Qwen2.5-Math-1.5B. The local objective is to transfer reasoning behavior using teacher-generated examples. The proposed action is supervised fine-tuning on these examples. In this constructed task the materials are supplied as inputs to the decision. Their later public documentation does not date when outsiders first had access to them.
+\item \textbf{First observation.} The controller identifies the resulting checkpoint as DeepSeek-R1-Distill-Qwen-1.5B. A later developer can now use that public checkpoint and its documented training history. No comparable first-edge score is supplied by this example.
+\item \textbf{Second decision.} A new developer has that distilled checkpoint, math problems and a reasoning objective. Propose reinforcement learning from those weights and a parent--child evaluation on a common protocol. An independent attempt starting from the original Qwen checkpoint would require its own record.
+\item \textbf{Second observation.} The reported output is DeepScaleR-1.5B-Preview. After the evaluation request the controller can reveal the parent and child results from the same Agentica report. The subsequent trainer decision can retain the child for that measured objective. The published comparison does not supply evidence about an alternative second-stage recipe.
+\end{enumerate}
+
+If only the two independent model cards were serialized as unrelated episodes, the second decision could still identify its starting checkpoint by name. What it would lose is the preceding decision and the evidence for what training had already taken place. The path-versus-edge control in Section~\ref{sec:experiments} tests whether this additional context improves future decisions.
+
+\subsection{Zephyr example}
+
+The following excerpt is a hand-written reconstruction of documented operations for illustration. It splits the original comparison into an update followed by evaluation. The tool roles mark source-backed observations.
+
+\begin{verbatim}
+[
+ {"role":"user","goal":"Improve a chat student with preference data.",
+  "visible":{"starting-model":"SFT-1","data":"UltraFeedback",
+             "protocol":"MT-Bench","budget":"unspecified"}},
+ {"role":"assistant","action":{"type":"train","arguments":{
+    "from":"SFT-1","method":"DPO","data":"UltraFeedback"}},
+  "evidence_ids":["starting-model","data"],
+  "decision_summary":"Start from the available supervised checkpoint."},
+ {"role":"tool","kind":"archive","id":"trained-child",
+  "observation":{"checkpoint":"SFT-1+DPO"},
+  "source":"arXiv:2310.16944, training method and Table 3"},
+ {"role":"assistant","action":{"type":"evaluate","arguments":{
+    "checkpoints":["SFT-1","SFT-1+DPO"],"evaluator":"MT-Bench"}},
+  "evidence_ids":["starting-model","trained-child","protocol"],
+  "decision_summary":"Measure both checkpoints on the same evaluator."},
+ {"role":"tool","kind":"archive","id":"paired-score",
+  "observation":{"metric":"MT-Bench","provenance":"reported",
+                 "scores":{"SFT-1":6.64,"SFT-1+DPO":7.00}},
+  "source":"arXiv:2310.16944, Table 3"},
+ {"role":"assistant","action":{"type":"select_checkpoint","arguments":{
+    "checkpoint":"SFT-1+DPO"}},"evidence_ids":["paired-score"],
+  "decision_summary":"Retain this checkpoint on the reported metric."}
+]
+\end{verbatim}
+
+The score of 4.76 for DPO without the supervised stage is associated with a separate branch from the original base model. Its data can support an independent demonstration. In the rendered episode above, associating 4.76 with the SFT checkpoint would fail the source and stage match. Beginning the episode by citing 7.00 as a reason to launch DPO would fail the visibility check.
+
+\subsection{Episode manifest}
+
+A release can represent one episode with grouped identifiers \field{project\_id} and \field{episode\_id}. The \field{artifact\_refs} field stores source types, locators and versions. The \field{goal} and \field{initial\_state} record the starting checkpoint, data, tools, protocol and budget. The \field{turns} field contains the proposed actions, source-backed tool observations and terminal status.
+
+For a multi-round episode, store the ordered checkpoint and edge IDs, each round's project, actor, goal, input revision, output revision, and the evidence visible at the handoff. Distinguish exact parent identity from a release-level mapping, and keep provenance for either. A pool of sibling alternatives shares a parent ID. It never turns two independent children into consecutive updates. One can release new paths as further descendants appear while retaining the original graph snapshot and time cutoff for each experiment.
+
+To audit an episode, use \field{visibility} to reconstruct what was visible before each action and \field{binding\_status} to distinguish a unique match, ambiguity, a missing record, and a proposal endpoint. The \field{loss\_mask} stores a Boolean selection per eligible assistant turn for expansion to token-level supervision. The \field{generation\_provenance} field records the prompt revisions, few-shot examples, model versions and split. The training view contains the visible interaction and loss mask. The hidden index and rubric outputs remain available to auditors.
+
+\subsection{Metadata audit recipe}
+
+The completed pilot queried the public Hub models endpoint with filters for \field{text-generation} and \field{base\_model:relation:parent}. We set query order to newest creation time, limited each stratum to 20 entries, and requested card metadata, sibling filenames, and commit SHA. File checks used exact basenames under any repository directory. Examples were \field{trainer\_state.json}, \field{train.py}, \field{training\_args.json}, and \field{eval\_results.json}. The pilot examined filenames. It did not need to load binaries or execute repository code. The six queried strata and all revisions were stored in the audit manifest.
+
+\subsection{Reporting corpus construction}
+
+Track the distinct repositories, deduplicated projects, extracted stages and sets of alternatives with comparable evaluation. Report the episode count before and after evidence filtering, the number with supervised decisions after both filters, and the resulting supervised-token count. The audit estimates the fraction of source-supported claims. Construction cost includes generation and validation per retained episode.
+
+For the human audit, sample by operation type and evidence tier. Annotate source attribution, visibility, evaluation comparability and usefulness of the decision separately. Include rejections and masked decisions so that quality can be compared before and after filtering. Record disagreement and adjudication. Freeze the rubric and selection parameters on this development audit before comparing policies on PostTrainBench.
+
+\section{Implementation and reporting details}
+
+Freeze the source query, project grouping and exclusions. Record the extractor, generator and grader revisions together with decoding settings, demonstration count, seeds, output budgets and retry rules. Log the decision-to-mask rule, grader abstentions and audit agreement. For trainer SFT, report the model revision, update method, effective batch size, context length and optimizer schedule. Pin the PostTrainBench v1.2 evaluator and record the target checkpoints, seeds, run budget and validity verdicts.
+
+Allocate separate training-pool roles for bootstrap lessons, curriculum search, exposed diagnostic summaries and blind development probes. Hold out independent paths for each generation's candidate selection. Use the intersection of adjudicable probe states for paired comparisons: assess whether the action is supported by the inherited state, feasible for the goal, and grounded by a matching record or an audited request for information. An unsupported but plausible alternative receives an unresolved label. Disclose abstentions and the distribution of errors, including reasons for stopping. Log every parent and recipient revision, both proposed curricula, optimizer settings, the pre-update baseline, development results, and the final update to the teaching decision. Give frozen-teacher controls the same opportunity to select between candidates.
+
+For prompt ablations, run schema-only, fixed-demonstration, and evidence-matched demonstration variants over the same held-out records. Count proposals with a unique matching stage, grounded factual claims, and episodes eligible for SFT. At matched supervision size, use the same PostTrainBench evaluation grid for each trained trainer.

@@ -1,0 +1,301 @@
+\documentclass{article}
+
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{upquote}
+\usepackage{hyperref}
+
+\usepackage[preprint]{icml2027}
+
+\icmltitlerunning{Recursive Self-Improvement from Public Model Lineages}
+\newcommand{\field}[1]{\texttt{#1}}
+
+\begin{document}
+
+\twocolumn[
+\icmltitle{Learning from Public Model Lineages\\
+for Recursive Self-Improvement of Post-Training Agents}
+
+\begin{icmlauthorlist}
+\icmlauthor{Anonymous Author(s)}{anonymous}
+\end{icmlauthorlist}
+\icmlaffiliation{anonymous}{Affiliation withheld}
+\icmlcorrespondingauthor{Anonymous Author(s)}{withheld}
+\icmlkeywords{Recursive self-improvement, autonomous post-training, offline supervision}
+\vskip 0.3in
+]
+
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+One team's fine-tuned model can become the starting checkpoint for another team's experiment months later. Public model lineages therefore preserve something a single recipe cannot: how the next training decision changes after an earlier update has already taken effect. We propose to use these histories to train post-training agents and investigate recursive self-improvement (RSI). We link documented weight updates across releases, reconstruct one decision at a time, and reveal archived observations as the corresponding actions occur. Each intermediate checkpoint carries its documented state into the next round. These trajectories bootstrap a trainer that can then diagnose its own decisions, select instructive paths or branches, and specify a weight update for its successor. We design paired PostTrainBench tests of two abilities: training unfamiliar students and teaching another trainer to do so. A metadata audit covers 120 Hugging Face repositories, and a separately sourced three-checkpoint lineage illustrates the reconstruction. The yield of multi-round trajectories and the effects of recursive trainer updates remain open empirical questions.
+\end{abstract}
+
+\section{Introduction}
+
+An agent receives a base language model, a task, and a limited compute budget. It must decide what data to use, which objective to optimize, and when a disappointing result warrants changing course. PostTrainBench measures this ability through the performance of the model the agent actually trains and submits \citep{rank2026posttrainbench}. Now give the agent a copy of its own checkpoint. The goal changes: the copy will itself receive unfamiliar models to train. An update that helps the copy follow one recipe can still leave it unable to decide when that recipe is a poor choice. Can the agent identify what its successor needs to learn, teach it, and leave it better able to repeat the process?
+
+Consider a base checkpoint \(A\). One developer fine-tunes it and releases \(B\). Months later, another starts from the released weights of \(B\), changes the training objective, and publishes \(C\). A card for \(C\) alone can teach a recipe. The path \(A\!\to\!B\!\to\!C\) can teach when to use it: the second developer inherited a model that had already undergone a particular update. Another child of \(B\) may document a different choice from that same starting point. Hugging Face (HF) exposes many such parent claims. Model releases thus offer a distributed history of post-training even when the original developers never shared a trajectory or worked together.
+
+RSI-Dojo converts research artifacts into executable tasks and collects training demonstrations from agents. Its authors identify training an improved successor as an open experiment \citep{gao2026rsidojo}. RSI-Prime shows that selecting decisions to supervise within experimental trajectories can strengthen a post-training agent \citep{zheng2026rsiprime}. We ask what additional supervision comes from following the weights across releases, and whether a trainer can use that history to improve its own successor.
+
+Reusing that evidence requires care. A model that reads an entire release before writing a trajectory can cite the winning score as its reason for launching the run. A trainer that only imitates published winners can learn to apply the same recipe everywhere. We address the first problem by separating the proposed action from the source that supplies its outcome. We address the second by giving each trainer a choice about what to teach. For example, a trainer that systematically skips the supervised stage before preference training can seek records that compare both starting checkpoints, then teach its successor when that choice matters.
+
+We use \emph{trainer} for the policy whose weights encode post-training decisions, \emph{student} for an external target model, and \emph{successor} for the next trainer. The proposed recursion runs through the trainer weights. A trainer uses evidence about its own errors to design an update, an executor applies that update to a copy, and the resulting checkpoint controls the next update. This gives a concrete alternative explanation to test. Successive checkpoints might benefit from accumulating supervised tokens even if the original trainer remains just as good at designing their updates. We therefore vary the teacher while holding the recipient fixed.
+
+This paper develops three parts of that proposal.
+
+\begin{itemize}
+  \item We define the training example as a path of inherited checkpoints, with evidence attached to each update and time-specific views of what a trainer could know. We illustrate the construction on a lineage spanning three independent teams and report a separate audit of discovery metadata.
+  \item We define a recursive update in which a trainer diagnoses a weakness, selects contrasting evidence, and issues a training plan for its successor. The next generation learns from both the selected decisions and the measured usefulness of the parent's teaching choice.
+  \item We design paired PostTrainBench experiments that separately measure the ability to train external students and the ability to teach another trainer. Holding the recipient, archive access, and compute fixed makes the latter claim testable.
+\end{itemize}
+
+\begin{figure*}[t]
+\centering
+\setlength{\unitlength}{1pt}
+\begin{picture}(446,95)
+\normalsize\rmfamily
+\put(0,83){\makebox(446,10)[l]{\textbf{Historical student checkpoints}\enspace Each release can supply the input to the next experiment.}}
+\put(0,57){\framebox(126,18){\(A\) \enspace Base release}}
+\put(126,57){\makebox(34,18){\(\longrightarrow\)}}
+\put(160,57){\framebox(126,18){\(B\) \enspace First fine-tune}}
+\put(286,57){\makebox(34,18){\(\longrightarrow\)}}
+\put(320,57){\framebox(126,18){\(C\) \enspace Later fine-tune}}
+\put(0,31){\makebox(446,10)[l]{\textbf{Proposed trainer generations}\enspace Each trainer chooses how to teach the next checkpoint.}}
+\put(0,5){\framebox(126,18){\(G_1\) \enspace Bootstrap trainer}}
+\put(126,5){\makebox(34,18){\(\longrightarrow\)}}
+\put(160,5){\framebox(126,18){\(G_2\) \enspace Successor}}
+\put(286,5){\makebox(34,18){\(\longrightarrow\)}}
+\put(320,5){\framebox(126,18){\(G_3\) \enspace Successor}}
+\end{picture}
+\caption{Two different handoffs. Above, developers inherit student weights across releases. The documented decisions on those paths supply training examples. Below, a trainer selects examples and specifies an update to its own checkpoint. Each resulting trainer is evaluated by the external students it actually post-trains.}
+\label{fig:handoffs}
+\end{figure*}
+
+\section{Related Work}
+
+\paragraph{Learning to post-train models.}
+\citet{lim2026missing} find that post-training agents often make local changes after committing to a strategy. RSI-Dojo builds 281 seed tasks and uses rollout-level rubric and outcome filters \citep{gao2026rsidojo}. RSI-Prime collects 350 experimental trajectories and uses decision-level loss masking to preserve useful actions in context \citep{zheng2026rsiprime}. Our initialization adopts selective supervision. Our research question concerns the source of the next update: what can a trained policy recover from historical experiments to teach another model to be a trainer?
+
+\paragraph{Learning to improve a learner.}
+SEAL trains a model to generate data and update directives using the performance of the adapted model as feedback \citep{zweiger2025seal}. SOAR rewards a teacher for generating problems that improve a learner on difficult reasoning tasks \citep{sundaram2026soar}. Both motivate assessing a teaching decision through a change in its recipient. In our setting the recipient is itself a trainer. Its downstream work product is a third model, and the original experiments grounding the curriculum must be identifiable in the archive. These roles determine which checkpoint is evaluated and where independent evidence enters the loop.
+
+\paragraph{Public model metadata.}
+The Hub represents base models, datasets, and evaluations on model cards \citep{huggingfacehubcards}. Model Atlas studies transformations between models \citep{horwitz2025atlas}, and \citet{laufer2025anatomy} analyze the structure of the Hub's derivation network. Parsed model cards also provide structured attributes \citep{vanstrien2025parsed}. We use the network to construct a sequential decision problem. At an intermediate checkpoint, a trainer must reason from the work already done and select a next operation before it can observe a descendant's result.
+
+\paragraph{Synthetic supervision.}
+Few-shot generation can extend seed instruction data to many task instances \citep{wang2023selfinstruct}. Here the seed examples specify how to handle common shapes of training evidence. A prompt can synthesize a decision in that format. Outcome fields come from external artifacts through a separate controller, and can be absent. This construction allows the trainer to learn how to act under incomplete evidence, including proposing an evaluation whose result is still unknown.
+
+\section{From model lineages to multi-round trajectories}
+\label{sec:evidence}
+
+\paragraph{Unit of collection.}
+Start at a public base, fine-tune, or adapter release and follow claimed parents and children across repositories, organizations, and dates. In the resulting graph \(G=(V,E)\), a node identifies a checkpoint, including the parent revision and adapter when the checkpoint is distributed as a delta. A directed training edge identifies an actual update from its initialization to its output. The primary training example is a path of connected edges. One-edge records also provide bootstrap examples. Collapse exact mirrors and format conversions. Record merges with all inputs, and represent a distillation teacher as a data source unless its weights initialized the child. Treat cycles or conflicting parent claims as unresolved. Report supported path lengths after these checks.
+
+\paragraph{The intermediate checkpoint is the handoff.}
+For a path \(A\!\to\!B\!\to\!C\), join the two updates only if the output of the first is the input to the second. Resolve a pinned reference or an explicit author mapping to a uniquely identified release. A common family name, similar scores, or later publication alone cannot identify that handoff. Store public availability time separately from a run timestamp. When the exact run date is unknown, mark the order inferred from weight dependency. Expose prior observations in the second round only if the record establishes that they were available by then. A retrospective evaluation of \(B\) and \(C\) belongs after the second update. At a change of developer or objective, open a new round and record its local goal. Several people can contribute to the same path.
+
+\paragraph{Artifact acquisition and extraction.}
+The collector records model identifiers and immutable repository revisions, then reads the card, applicable configuration files, trainer state, declared evaluation files, and linked technical reports. Lightweight metadata and text files suffice for this stage. Fields that can be read from a known JSON or YAML schema are extracted directly. A separate few-shot extraction prompt handles free-text material and returns candidate claims with source anchors. Its output vocabulary includes \field{unspecified} and \field{conflicting}. An exact document identifier and sentence or JSON key path accompany each candidate. Hyperparameters are associated with the run or stage that reports them.
+
+\paragraph{Record structure.}
+A stage is represented as
+\begin{equation}
+e=(c_{\mathrm{in}}, u, d, h, c_{\mathrm{out}}, \mathcal{O}, P),
+\label{eq:stage}
+\end{equation}
+where \(c_{\mathrm{in}}\) and \(c_{\mathrm{out}}\) are checkpoint identities, \(u\) is a training or evaluation operation, \(d\) identifies inputs, \(h\) contains the known settings, \(\mathcal{O}\) holds documented observations, and \(P\) maps fields to provenance. A source anchor stores the artifact URI, revision or publication version, local locator, and whether the source is a log, configuration, report, or model card. Author-reported outcomes and tool-generated logs keep their provenance labels. Missing values remain unknown. The relation between two stages is a verified checkpoint dependency or a documented comparison.
+
+\paragraph{Comparability.}
+For every metric, retain the evaluator and version where available, dataset and split, metric and scale, protocol details, and the identity of the scored checkpoint. The system exposes a numeric difference as a matched comparison only if the source provides the necessary shared protocol. It can display two scores with uncertain comparability separately, with no ranking label. When training data, loss and compute all change, a matched score compares entire recipes. Isolating one change requires a reported ablation with appropriate controls. This distinction prevents a broad repository survey from being mistaken for a controlled hyperparameter study.
+
+\paragraph{Evidence available for supervision.}
+A card with only a documented recipe can support a short recipe or data-selection decision. A configuration connected to a reported result can support a training-and-evaluation segment. A project with ordered stages, ablations, or logged failed attempts can support decisions that use observed feedback. The maximum useful trajectory length is determined by the records recovered. It is common for a sample to end with a proposed check whose outcome is unknown.
+
+\paragraph{Examples from one path.}
+A path with \(k\) verified updates supplies a complete handoff sequence and up to \(k\) next-update decisions. For a prefix ending at \(B\), the policy sees how \(B\) was produced, its visible measurements and the newly assigned goal. It proposes the next experiment. Only a matching edge can expose \(C\). A sibling of \(C\) yields an alternative continuation from \(B\). Compare siblings only on a shared objective and compatible evaluation. A later checkpoint can gain on one metric and regress on another. Count paths, unique edges, and independent lineages separately, since many prefixes can reuse the same historical update.
+
+\paragraph{A growing archive.}
+At a collection cutoff, a path can end at \(B\). If a later release identifies \(B\) as its parent, append the verified edge to \(C\) and create a new next-decision example from the old prefix. Preserve the earlier version of that prefix, including what was then unknown. Later releases can deepen a path or add a sibling. We freeze the same archive for all teachers in the main experiment so that access to a newer release cannot explain a generational gain.
+
+\section{Few-shot trajectory construction}
+\label{sec:construction}
+
+\subsection{Demonstration design}
+
+We use few-shot examples in two separate prompts. The extraction prompt shows how to transcribe records, distinguish sources, and preserve missing fields. The action prompt shows how to act on those records. Each example contains the visible trainer state, one structured action, and the observation that a controller would reveal afterwards. The expected output is limited to the action. The shown observation teaches the output protocol through a previous complete interaction.
+
+The seed bank contains four kinds of examples.
+
+\begin{enumerate}
+  \item \textbf{Documented single stage.} Select a method and its inputs when the objective, base, and data are known. End after the proposed action if the source has no execution result.
+  \item \textbf{Ordered stages.} Select an available checkpoint as the input to the next update, and identify a meaningful comparison before seeing its result.
+  \item \textbf{Documented failure or regression.} Use an actual observation to justify an actionable repair, a rollback, or an additional check. A verified failed run can support a strong recovery example.
+  \item \textbf{Ambiguous or incomparable records.} Ask for the missing evaluation, keep alternatives provisional, or stop. The example resolves uncertainty through an appropriate decision rather than through invented numbers.
+\end{enumerate}
+
+Choose seed examples from the case's evidence pattern. For a cross-release handoff, show a separate lineage in which the starting weights for the second round equal the first round's output, the local goal changes, and evidence published later remains hidden. Use a sibling example to teach branching. Reserve unrelated lineages for validation. Freeze the seed bank and prompt settings for each data-generation condition.
+
+\subsection{One action at a time}
+
+At step \(t\), the action model sees
+\begin{equation}
+s_t = (g,b,c_t,E_t,H_{<t}),
+\end{equation}
+where \(g\) is the task goal, \(b\) is the budget if documented or explicitly assigned, \(c_t\) is the current checkpoint, \(E_t\) is the set of visible evidence, and \(H_{<t}\) is the interaction history. The compiler constructs the initial view from inputs such as the base, data schema, objective and available tools. It withholds held-back results, later checkpoints, and discussion sections that reveal which alternative won. The visibility order is a property of the constructed example. When source timestamps are absent, the emitted trajectory is described as a reconstruction rather than a transcript of the original practitioner's internal process.
+
+The generator emits a structured action \(a_t\) and a concise decision summary. Action types include \field{inspect}, \field{prepare\_data}, \field{train}, \field{evaluate}, \field{select\_checkpoint}, and \field{stop}. A training action identifies the starting checkpoint, available data, and intended update. An evaluation action names the checkpoint and available protocol. Each rationale cites visible evidence IDs and can state uncertainty. Free-text repository excerpts are treated as quoted data. Instructions in those excerpts have no control over the generator or its tools.
+
+\subsection{Binding actions to observations}
+
+The controller queries the record index for a stage matching the proposed action. A match requires agreement on the relevant identities, such as input checkpoint, operation, dataset and evaluation protocol, together with any explicit configuration constraints that distinguish runs. A partial proposal can match when it uniquely identifies a stage under the visible context. If two records remain compatible with the proposal and lead to different observations, the controller asks for a disambiguating decision or terminates that segment. It supplies feedback from a single matched record.
+
+For a uniquely matched stage \(e\), the transition adds \(a_t\) to the history and reveals the corresponding documented observation \(o_t\):
+\begin{equation}
+o_t =
+\begin{cases}
+\operatorname{obs}(e) & \text{for a unique match},\\
+\varnothing & \text{otherwise}.
+\end{cases}
+\label{eq:outcome}
+\end{equation}
+Generated follow-ups can be kept as proposals. They terminate the observed prefix unless there is a source-supported successor. A successful terminal execution status, an error message, a metric value, and a checkpoint ID are all observations and must come from a recorded artifact. Thus a trajectory can contain a documented loss decrease and a generated interpretation of that loss, each with a different role.
+
+\paragraph{Branching from the same state.}
+When records share a prerequisite, the builder can render multiple actions from the same state. This yields alternatives for filtering and evaluation. A branch can be used to show how a trainer should respond to its own outcome. It is not presented as a later event following a different branch. The train--validation split groups the entire experiment together, so a held-out branch cannot be reconstructed from a sibling already shown in the few-shot bank.
+
+\section{Trajectory filtering and coach training}
+\label{sec:filter}
+
+\subsection{Filter 1: Evidence consistency}
+
+The first filter checks whether the trajectory could have been constructed from its cited sources and visibility schedule. It operates on the source-backed state, the generated actions, and the event list. The checks cover the following classes.
+
+\begin{itemize}
+  \item \textbf{Provenance and identity.} Each reported observation resolves to a pinned source. Checkpoints, data IDs, stage IDs and protocol fields agree with the matched record.
+  \item \textbf{Visibility and ordering.} An action can cite only evidence already visible at that point. A stage can reuse a checkpoint only after that checkpoint becomes available. A later published metric cannot justify an earlier action.
+  \item \textbf{Observation integrity.} Reported numbers, units, successes, and failures match the source. A proposal with unavailable feedback has no tool result. A difference between scores is emitted only when comparison is permitted.
+  \item \textbf{Consistency of claims.} A configuration conflict stays unresolved until evidence settles it. A comparison of full recipes cannot be rendered as evidence for a single factor.
+\end{itemize}
+
+The controller reconstructs the verified events directly from parsed records. A deterministic check validates those fields and the event order. A separately prompted textual checker flags unsupported claims in generated summaries. A formatting error may be repaired and checked again. When the evidence fails to support a step, the pipeline truncates at the last supported prefix or rejects the sample. Disagreement between sources never produces a synthetic measurement.
+
+\subsection{Filter 2: Decision quality}
+
+A factually consistent action is useful only if the trainer should learn to take it in that state. For example, a real run may use a poor comparator. Conversely, a real performance regression can lead to a well-justified rollback. The decision grader receives the state visible to the actor and that actor's action. The next outcome stays hidden for a pre-action judgment. It becomes part of the state only for subsequent interpretations. The grader assesses four aspects.
+
+\begin{enumerate}
+  \item \textbf{Objective and feasibility.} The action serves the stated goal and can use the available checkpoint, data, tools, and budget.
+  \item \textbf{Use of evidence.} The decision addresses the observation in context, with uncertainty when the evidence is incomplete.
+  \item \textbf{Experimental value.} An experiment or checkpoint choice supports a useful comparison. A diagnostic step has a specific question and a testable result.
+  \item \textbf{Follow-through.} When evidence changes, the response proposes a relevant next step, a defensible revision, or a justified stop.
+\end{enumerate}
+
+The rubric returns a decision-level label and cites the input fields on which the judgment depends. A useful decision is eligible for loss. An ordinary step needed for context may be retained without loss. A harmful, infeasible, or misleading decision is masked when its factual context is valuable, and dropped with its dependent suffix when keeping it would make the remaining example incoherent. The grader can mark a dimension as not applicable and can abstain for human audit. The rubric is calibrated against independently annotated examples before benchmark runs.
+
+\subsection{Supervised fine-tuning}
+
+Serialize the accepted sequence in the target trainer's chat and tool-call format. Tool observations remain in the context. Assistant tokens corresponding to selected decisions and their concise summaries receive supervision. Let \(x_{i,j}\) denote token \(j\) of episode \(i\), and \(m_{i,j}\) indicate that the token belongs to a retained assistant decision. The objective is
+\begin{equation}
+\mathcal{L}(\theta)=
+-\frac{\sum_{i,j}m_{i,j}\log p_\theta(x_{i,j}\mid x_{i,<j})}
+ {\sum_{i,j}m_{i,j}}.
+\end{equation}
+The trainer receives no loss on the original repository excerpts, tool outcomes, verifier labels, or discarded actions. We group contributions by project and comparison to prevent repeated rewrites of one well-documented experiment from dominating the dataset. The logged data summary distinguishes repositories, recoverable experiment records, episodes, and supervised decisions. These quantities can differ substantially.
+
+\section{How a trainer teaches its successor}
+\label{sec:recursion}
+
+The proposed system admits a static archive. The resource that changes each round is the trainer that decides how to use it. Let \(G_0\) be the initial policy and \(G_1\) the checkpoint after training on a fixed seed curriculum. To bootstrap the teaching interface, include worked examples that map an observed trainer error to a set of relevant paths and a feasible training plan. These examples teach the output format. Evidence about which plans improve a recipient first becomes available when a real copy is updated.
+
+\paragraph{Diagnose and teach.}
+Give \(G_g\) its decisions on an archive diagnostic split, grouped by error type, alongside its remaining training budget. For example, it might repeatedly restart from a base when a suitable intermediate checkpoint is already available. The trainer searches a separate curriculum split by parent, operation, path depth and evaluator. It proposes two feasible lessons for the same weakness. One might contrast restarting with continuing a verified descendant. The other might emphasize single-update examples. Each proposal includes path IDs, which prefixes to expose, decision weights and a token allocation. A fixed executor checks these choices and compiles accepted actions with the two filters. Neither trainer can add an outcome to the index.
+
+\paragraph{Update and hand off.}
+For each lesson, initialize a copy of \(G_g\) and apply the proposed supervised update. Use equal optimizer steps and identical budgets. On fresh archive development paths, measure whether each recipient selects a documented feasible continuation or requests a justified diagnostic under partial evidence. Score only adjudicable decisions, macro-average by lineage, and report coverage. Include an unchanged copy to measure the absolute gain. Use this paired development comparison to choose a lesson, resolving ties by a fixed order. When one lesson improves over the unchanged copy and its alternative, include the corresponding teaching decision as an additional supervised example for the selected recipient. Keep the measured outcomes in the tool role. With a tie or inconclusive evidence, omit this teaching label. The resulting checkpoint is \(G_{g+1}\). It receives the same teaching interface on fresh paths. Candidate and final checkpoints, curricula and probe outcomes are saved so every handoff is auditable. A generation index records an update, including one with zero or negative transfer.
+
+\paragraph{What can change from \(G_1\) to \(G_3\)?}
+A possible \(G_1\) lesson teaches \(G_2\) to identify which supervised checkpoint to continue from. When \(G_2\) reviews its own decisions, it may already resolve parent identity but still select a later child using a score from an incompatible evaluator. It can then teach \(G_3\) using siblings with comparable evaluations and cases where the right next step is to request a common evaluation. This is an illustrative progression. It makes two predictions: \(G_2\) should condition its own training choices on the inherited state, and its lesson should improve another recipient on a weakness that \(G_1\)'s lesson missed. A frozen \(G_1\) designing both lessons provides a direct control.
+
+\section{Pilot audit and worked example}
+\label{sec:pilot}
+
+\paragraph{Repository metadata audit.}
+On November 26, 2026, we used the public Hub API to collect the 20 most recently created text-generation repositories in each of six strata. The strata combine Qwen2.5-7B-Instruct, Mistral-7B-Instruct-v0.3, and Gemma-2-2B-it with the fine-tune and adapter relations. Of the 120 distinct repositories, 29 declared a dataset in structured metadata, 22 matched a training-related filename, and 10 contained a legacy evaluation index in the model card. Six of the 22 filename matches included \field{trainer\_state.json}. These counts overlap. The audit pinned repository revisions and checked metadata and filenames. Assessing how many usable trajectories can be recovered requires examining the files and resolving their links to experiments.
+
+\paragraph{A handoff across three teams.}
+Qwen released Qwen2.5-Math-1.5B in September 2024 \citep{qwen2024math}. In January 2025, DeepSeek released DeepSeek-R1-Distill-Qwen-1.5B. Its model card identifies the Qwen math model as the base and DeepSeek-R1 as the source used to curate distillation data \citep{deepseek2025card}. In February 2025, Agentica released DeepScaleR-1.5B-Preview, identifying the DeepSeek checkpoint as the starting point for reinforcement learning \citep{agentica2025deepscaler}. A reconstructed first decision is to fine-tune the Qwen base on teacher-generated reasoning examples. The second decision starts from that distilled checkpoint and selects reinforcement learning on math problems. It can use the known first-stage training history. Under Agentica's evaluation, the parent and child respectively score 28.8 and 43.1 on AIME 2024 (pass@1, percent). The pair is feedback for the second edge. It supplies no measurement of the first edge's gain. This case was identified separately from the pilot, and we reserve it for illustration because its evaluation overlaps a benchmark family of interest.
+
+\paragraph{A within-project comparison.}
+For Zephyr-7B, \citet{tunstall2023zephyr} describe supervised fine-tuning of Mistral~7B on UltraChat followed by direct preference optimization (DPO) with UltraFeedback. Table 3 of that report gives MT-Bench scores of 6.64 for the supervised-only run, 4.76 for DPO without the initial SFT stage, and 7.00 for the combined sequence. The source's recorded comparisons can be turned into a supervised decision. Given the available SFT checkpoint and preference data, propose DPO from that checkpoint and ask to compare the child against the supervised parent under the reported evaluator. Reveal the scores only after that request. A subsequent response can justify keeping the combined checkpoint on the recorded metric and identify the need for additional evaluation if the deployment goal demands it. The example illustrates a decision under a specified setup. Its evidence supports neither unmeasured retention nor a universal rule about DPO.
+
+\section{Experimental protocol}
+\label{sec:experiments}
+
+\paragraph{Primary question.}
+Does conditioning on an inherited training history improve a trainer's ability to train students, and does the resulting trainer design better updates for its successors? All arms descend from the same open-weight trainer and share an evaluation harness. At test time the trainer weights are frozen, archive retrieval is disabled, and the trainer must use real benchmark tools to produce a student checkpoint. Plans written as assistant text in the archive may precede those tool calls. We supervise literal commands only when the source supplies them. The test harness supplies no mapping from a proposal to a successful execution.
+
+\paragraph{Data controls.}
+Freeze the graph, cutoff date, and partition before making examples. Keep shared fine-tuned ancestors, descendants, adapters, mirrors and near-duplicate experiments in the same partition. A widely reused foundation checkpoint may be common to separate branches in the development study. For strict model-family transfer, hold out its entire family. Group linked releases across organizations. Exclude PostTrainBench solution traces, leaderboard recipes and test-derived material from training, diagnostics, and prompts. Under matched archive coverage, compare four bootstrap conditions.
+
+\begin{enumerate}
+  \item \textbf{Base trainer.} The starting checkpoint and the common evaluation harness.
+  \item \textbf{Recipe text SFT.} The same training ingredients and observations expressed as structured prose or recipes.
+  \item \textbf{One-pass trajectory SFT.} A few-shot model reads the same source records and writes a complete trajectory in one call. Apply the common observation checks needed for a viable training set.
+  \item \textbf{Restricted-view trajectory SFT.} Generate actions step by step and apply both filters.
+\end{enumerate}
+
+For the one-pass versus restricted-view comparison, the source cases, tool schema, generator checkpoint, and decision rubric are matched. The one-pass generator can see the whole record. Both arms use the same post hoc observation checks. We report the acceptance rate per arm and train at matched supervised tokens. We also report the number of independent projects represented after filtering. A paired-source sensitivity analysis uses only projects that produced usable episodes under both conditions to check how much the retained source mixture contributes to the difference.
+
+\paragraph{Does inheritance help?}
+Train one policy on connected paths and another on the same edges as independent episodes. At a second-stage decision, both see the correct current checkpoint, current resources and local objective. Only the path condition sees the supported history of how this checkpoint was obtained. Match edge multiplicities, supervised decisions and compute, then compare both trainers on the same PostTrainBench grid. On separate diagnostic paths, mask the ancestor history at inference. Compare by path depth and by whether the source documents a change of objective or a comparable sibling. Reserve later descendants of known lineages for a temporal stress test. Report that test separately from transfer to a wholly unseen family.
+
+\paragraph{Does the trainer improve across generations?}
+Use the official PostTrainBench v1.2 scoring and validity rules \citep{rank2026posttrainbench,ptb2026release}. For each frozen \(G_0,G_1,G_2,G_3\), assign identical task--student pairs, harness, hardware cap and matched run seeds. Report the official weighted score, per-task results, valid completions and paired uncertainty. Report separately the cells with a target student family absent from coach training, a held-out task family, and both held out. Fix these exclusions before corpus construction. A restricted grid receives its own label. Final benchmark scores are opened only after curricula, checkpoints and comparisons are locked.
+
+\paragraph{Does a later trainer teach better?}
+In a separate paired experiment, give \(G_1\) and \(G_2\) identical diagnostic results from a common recipient \(R\), the same unseen curriculum pool and the same budget. Each teacher independently designs an update for an identical copy of \(R\). Apply the same executor, selection procedure and number of candidate updates on each side. Then have each resulting recipient post-train the same external students on PostTrainBench. With \(S(\cdot)\) the benchmark score and \(U(R,G)\) the updated recipient taught by \(G\), the contrast is
+\begin{equation}
+\Delta_{\mathrm{teach}}(R)=S\!\left(U(R,G_2)\right)-S\!\left(U(R,G_1)\right).
+\end{equation}
+Evaluate both against the unchanged \(R\). Start with \(R=G_1\), then repeat with a compatible, independently initialized trainer checkpoint to test transfer of teaching ability. The independent recipient's episodes use its own chat serialization. Pair the complete post-training runs and report uncertainty across runs and variation across task--student cells.
+
+\paragraph{What accounts for a gain?}
+Compare the recursive chain with two equal-budget chains: one keeps \(G_1\) as teacher while the recipient continues to train, and one replays a fixed curriculum for the same number of gradient updates. Match archive access, generator calls, candidate runs and supervised tokens, including teaching labels. Log any shortfalls. A higher \(S(G_3)\) alone supports improved end performance. Evidence for better teaching also requires a positive common-recipient contrast robust to evaluation uncertainty. Similar results from the frozen teacher would leave repeated training as a sufficient explanation.
+
+\paragraph{Filter ablations.}
+Keep source pools, prompt versions, generator checkpoints, and downstream evaluation fixed. To isolate the first filter, remove source-claim, visibility and comparability checks after generation while retaining syntax safety, the prohibition on fabricated tool results, and benchmark decontamination checks. To isolate the second filter, supervise all eligible assistant steps after evidence checks. To isolate the cost of using a judge, compare it with removing the same number of decisions at random under a matched token budget. We measure both acceptance yield and downstream behavior.
+
+\paragraph{Prompt ablations.}
+Compare the full action prompt with a schema-only condition and a fixed demonstration condition. The schema-only condition removes the worked examples while keeping the same visible state and instructions. The fixed condition uses the same demonstration count as the full method but draws the example types without reference to the current evidence pattern. Record matching accuracy and support on the same held-out projects, and measure the resulting trainer variants on PostTrainBench with matched supervised tokens.
+
+\paragraph{Analysis and interpretation.}
+Report dataset yield by operation, source type, and evidence tier. Independently audit provenance precision, correct stage matching, unauthorized future evidence, comparison validity, and decision quality. Record the generator token cost and wall time per accepted episode. On the benchmark, analyze training launches, valid checkpoint submissions, and actions that respond to a measured result. The weighted benchmark score measures whether those behaviors lead to a better trained student. The comparison with recipe-text SFT tests the value of structuring supervision as trajectories. Comparing evidence support with the downstream score tests whether increased fidelity translates into better training decisions.
+
+\section{Limitations and conclusion}
+
+Public releases favor experiments developers choose to document. Long chains may concentrate in a few popular families. An absent edge can reflect a missing release, and multiple plausible continuations can exist outside the archive. We use matching to check the grounding of a reconstruction. Its policy value requires independent execution. Report the distribution of verified depth, cross-organization handoffs and comparable outcomes alongside collaborator concentration and the number of distinct roots. The pilot covers recent derivatives of three selected bases and measures metadata availability. Estimating multi-edge yield requires tracing actual parent and child records.
+
+A model lineage preserves choices made by earlier developers as weights that the next developer actually inherited. That continuity supplies the missing link between isolated recipes and multi-round supervision. The proposed trainer loop reuses those histories each time it designs a successor. Its costs include collection, generation, grading, recipient updates, and benchmark runs. Whether the process produces a better trainer, and whether that trainer becomes a better teacher, are distinct measurable outcomes.
+
+\section*{Impact Statement}
+
+A trainer that can reuse documented experiments may reduce duplicated compute and help developers audit their training decisions. Public artifacts vary in license, reliability, and intent. The proposed release records provenance and limits distribution to appropriately licensed material. Training and evaluation should retain the runtime boundaries of the benchmark. The ability to improve arbitrary student checkpoints also makes the choice of evaluation tasks and supported training objectives important.
+
+\section*{AI Disclosure Statement}
+
+Generative AI assisted with literature discovery, drafting this manuscript, preparing the pilot-audit code, and developing candidate prompts and experimental controls. The proposed pipeline uses a generator and a decision grader. Their model identifiers, settings, and data validation will be disclosed with the completed experiments. This draft reports the repository audit and cited source outcomes, with pending experiments marked as such.
+
+\bibliography{references}
+\bibliographystyle{icml2027}
+
+\clearpage
+\appendix
+\onecolumn
+\raggedbottom
+\input{appendix}
+
+\end{document}
